@@ -1,0 +1,11 @@
+{
+  "name": "Gobsek Mail",
+  "short_name": "Gobsek Mail",
+  "description": "Рассылка писем компаниям на их языке и ответы во «Входящих»",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "ru",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

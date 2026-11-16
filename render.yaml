@@ -1,0 +1,41 @@
+# Постоянная ссылка на Render.com (Blueprint): Dashboard → New → Blueprint → выбрать этот репозиторий.
+# Тариф Starter + диск 1 ГБ: работает 24/7 — письма уходят по расписанию, ответы собираются, база сохраняется.
+# Бесплатный тариф не подходит: он «засыпает» (рассылка останавливается) и теряет данные при перезапуске.
+services:
+  - type: web
+    name: gobsek-mail
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: "npm install --omit=dev"
+    startCommand: npm start
+    healthCheckPath: /api/meta
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: APP_SECRET
+        generateValue: true
+      - key: ADMIN_LOGIN
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Почту можно подключить и здесь, и в интерфейсе («Настройки → Почта»):
+      - key: MAIL_USER
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: FORWARD_TO
+        sync: false
+      # Перевод писем (необязательно):
+      - key: ANTHROPIC_API_KEY
+        sync: false
