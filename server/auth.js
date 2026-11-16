@@ -107,6 +107,9 @@ function login(loginName, password, req) {
     // Хешируем даже для несуществующего логина — чтобы время ответа не выдавало, есть ли такой пользователь.
     if (!user) verifyPassword(password, 'aa:' + '0'.repeat(128));
     loginFailed(loginName, req);
+    // В журнал сервера (Render → Logs) — понятная причина, чтобы было видно, что не так. Пароль не пишем.
+    const all = db.prepare('SELECT login FROM users WHERE active = 1').all().map((u) => u.login).join(', ');
+    console.log(`Неудачный вход: логин «${String(loginName || '').slice(0, 60)}» — ${!user ? `такого логина нет (есть: ${all || 'никого'})` : !user.active ? 'пользователь отключён' : 'неверный пароль'}`);
     logEvent(user ? user.id : null, 'auth', user ? user.id : null, 'login_failed', { login: String(loginName || '').slice(0, 60), ip: clientIp(req) });
     return null;
   }

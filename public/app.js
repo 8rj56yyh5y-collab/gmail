@@ -225,6 +225,7 @@
         <div><h2 style="margin-bottom:4px">Вход</h2><p class="muted" style="margin:0">Войдите, чтобы продолжить работу.</p></div>
         <label class="field"><span>Логин</span><input class="input" name="login" autocomplete="username" autocapitalize="none" required></label>
         <label class="field"><span>Пароль</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
+        <div class="note warn small hidden" id="kbwarn"></div>
         <button class="btn lg block">Войти</button>
         <p class="faint xs" style="margin:0">Нет доступа — попросите администратора добавить вас в «Настройках → Команда».</p>
       </form></section></div>`;
@@ -233,6 +234,15 @@
       const f = e.target;
       await busy($('button', f), async () => { const r = await post('/api/login', { login: f.login.value.trim(), password: f.password.value }); S.me = r.user; go('#/'); });
     };
+    // Подсказки: русская раскладка и Caps Lock — самые частые причины «неверного пароля»
+    const pw = $('#lf').password; const warn = $('#kbwarn');
+    const check = (e) => {
+      const msgs = [];
+      if (/[а-яёіїєґ]/i.test(pw.value)) msgs.push('В пароле русские буквы — похоже, включена русская раскладка.');
+      if (e && e.getModifierState && e.getModifierState('CapsLock')) msgs.push('Включён Caps Lock.');
+      warn.textContent = msgs.join(' '); warn.classList.toggle('hidden', !msgs.length);
+    };
+    pw.addEventListener('keyup', check); pw.addEventListener('input', () => check());
     setTimeout(() => $('#lf input').focus(), 30);
   }
   function pageForcePassword(root) {
