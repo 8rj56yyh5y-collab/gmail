@@ -272,3 +272,15 @@ test('расписание: каждый месяц — тот же день, к
   assert.equal(p.data.active, 0);
   assert.equal((await call('GET', '/api/schedules')).data.length, 2);
 });
+
+test('пароль из ADMIN_PASSWORD применяется при каждом запуске', async () => {
+  const auth = require('../server/auth');
+  process.env.ADMIN_PASSWORD = 'NewPass77';
+  delete require.cache[require.resolve('../server/index')];
+  // повторная загрузка = «перезапуск» сервера
+  require('../server/index');
+  const u = db.prepare("SELECT * FROM users WHERE login = 'admin'").get();
+  assert.ok(auth.verifyPassword('NewPass77', u.pass_hash));
+  assert.equal(u.must_change_pw, 0);
+  process.env.ADMIN_PASSWORD = 'Admin12345';
+});

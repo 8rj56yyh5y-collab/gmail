@@ -197,11 +197,24 @@
   const listCard = (title, items, empty, more = '') => `<div class="card flush"><div class="card-h" style="padding:16px 18px 0">${title}${more}</div><div class="list" style="margin-top:6px">${items.length ? items.join('') : `<div class="empty">${empty}</div>`}</div></div>`;
 
   // ================= Вход =================
+  // Фраза на странице входа — каждый раз другая. Спокойно, по делу, без пафоса.
+  const MOTTOS = [
+    'Каждое отправленное письмо — ещё один шанс. Шансов становится больше с каждым днём.',
+    'Не ответят все. Но хватит одного хорошего ответа, чтобы многое поменялось.',
+    'Сегодняшнее письмо может стать завтрашним партнёрством.',
+    'Большие дела складываются из маленьких шагов, сделанных вовремя.',
+    'Попросить о помощи — тоже работа. И её делают те, кто не сдаётся.',
+    'Регулярность делает больше, чем удача.',
+    'Мы делаем своё дело хорошо. Осталось, чтобы об этом узнали.',
+    'Где-то в Европе есть компания, которая ждёт именно такого письма.',
+    'Ответ, который всё изменит, может прийти уже сегодня.',
+  ];
   function pageLogin(root) {
     root.innerHTML = `<div class="auth">
       <section class="auth-art">
         <a class="brand">${brandMark}<span><b>${esc(S.meta.name)}</b><span>письма компаниям Европы</span></span></a>
-        <div><h1>Одно письмо — на родном языке каждой компании</h1><p>Загрузите файл со списком компаний — система сама определит страну, выберет письмо на нужном языке, отправит его и соберёт ответы во «Входящие».</p></div>
+        <div><h1>Одно письмо — на родном языке каждой компании</h1><p>Загрузите файл со списком компаний — система сама определит страну, выберет письмо на нужном языке, отправит его и соберёт ответы во «Входящие».</p>
+          <blockquote class="motto">${esc(MOTTOS[Math.floor(Math.random() * MOTTOS.length)])}</blockquote></div>
         <div class="pts">
           <div class="pt">${ic('globe', 20)}<span><b>Язык по стране</b>Германия — по-немецки, Испания — по-испански. Без ручной сортировки.</span></div>
           <div class="pt">${ic('clock', 20)}<span><b>Спокойная отправка</b>Паузы между письмами и дневной лимит — чтобы почта не попала в спам.</span></div>
@@ -213,6 +226,7 @@
         <label class="field"><span>Логин</span><input class="input" name="login" autocomplete="username" autocapitalize="none" required></label>
         <label class="field"><span>Пароль</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
         <button class="btn lg block">Войти</button>
+        <p class="faint xs" style="margin:0">Нет доступа — попросите администратора добавить вас в «Настройках → Команда».</p>
       </form></section></div>`;
     $('#lf').onsubmit = async (e) => {
       e.preventDefault();

@@ -36,19 +36,31 @@ const SECURITY_HEADERS = {
 };
 
 // ---------- первый запуск ----------
+// Вход администратора. Если на сервере задан ADMIN_PASSWORD — он применяется при КАЖДОМ запуске:
+// поменяли пароль в настройках Render → перезапуск → входите с новым. Так пароль невозможно «потерять».
 function bootstrap() {
   T.seedTemplates();
-  if (db.prepare('SELECT COUNT(*) n FROM users').get().n) return;
-  const login = str(process.env.ADMIN_LOGIN || 'admin', 40);
-  let password = process.env.ADMIN_PASSWORD;
-  let generated = false;
-  if (!password || auth.passwordProblem(password)) { password = auth.randomPassword(); generated = true; }
-  db.prepare('INSERT INTO users (login, name, pass_hash, must_change_pw, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(login, process.env.ADMIN_NAME || 'Администратор', auth.hashPassword(password), generated ? 1 : 0, Date.now());
+  const login = str(process.env.ADMIN_LOGIN || 'admin', 40) || 'admin';
+  const envPw = String(process.env.ADMIN_PASSWORD || '').trim();
+  const line = (t) => console.log(`  │ ${t}`);
   console.log('\n  ┌──────────────────────────────────────────────');
-  console.log(`  │ Создан вход: логин «${login}»`);
-  if (generated) console.log(`  │ Временный пароль: ${password}  (сменить при первом входе)`);
-  else console.log('  │ Пароль — из переменной ADMIN_PASSWORD');
+  if (envPw && envPw.length < 6) {
+    line('⚠ ADMIN_PASSWORD короче 6 символов — не применён. Задайте пароль подлиннее.');
+  }
+  const okEnv = envPw.length >= 6;
+  const existing = db.prepare('SELECT * FROM users WHERE login = ?').get(login);
+  if (existing && okEnv) {
+    db.prepare('UPDATE users SET pass_hash = ?, must_change_pw = 0, active = 1 WHERE id = ?').run(auth.hashPassword(envPw), existing.id);
+    line(`Вход: логин «${login}», пароль — из ADMIN_PASSWORD`);
+  } else if (!existing && (okEnv || !db.prepare('SELECT COUNT(*) n FROM users').get().n)) {
+    const password = okEnv ? envPw : auth.randomPassword();
+    db.prepare('INSERT INTO users (login, name, pass_hash, must_change_pw, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(login, process.env.ADMIN_NAME || 'Администратор', auth.hashPassword(password), okEnv ? 0 : 1, Date.now());
+    line(`Создан вход: логин «${login}»`);
+    line(okEnv ? 'Пароль — из ADMIN_PASSWORD' : `Временный пароль: ${password}  (сменить при первом входе)`);
+  } else {
+    line(`Вход: логин «${login}» (пароль не менялся)`);
+  }
   console.log('  └──────────────────────────────────────────────\n');
 }
 
