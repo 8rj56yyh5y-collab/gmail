@@ -29,6 +29,11 @@
   const STATUS = { new: 'Новая', queued: 'В очереди', sent: 'Письмо отправлено', replied: 'Ответили', bounced: 'Адрес не существует', unsubscribed: 'Просили не писать', blocked: 'В стоп-листе' };
   const CSTATUS = { running: 'Идёт', paused: 'На паузе', done: 'Завершена', cancelled: 'Отменена' };
   const pill = (s, text) => `<span class="pill s-${esc(s)}">${esc(text || STATUS[s] || CSTATUS[s] || s)}</span>`;
+  const REPEAT = { once: 'Один раз', weekly: 'Каждую неделю', biweekly: 'Каждые 2 недели', monthly: 'Каждый месяц' };
+  const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Kyiv'; } catch { return 'Europe/Kyiv'; } };
+  const dWhen = (ts) => (ts ? new Date(ts).toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '—');
+  const localInput = (ts) => { const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  const repeatText = (s) => (s.repeat === 'monthly' ? `Каждый месяц, ${s.day}-го числа в ${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}` : s.repeat === 'once' ? 'Один раз' : `${REPEAT[s.repeat]}, ${new Date(s.next_run_at || Date.now()).toLocaleDateString('ru-RU', { weekday: 'long' })} в ${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`);
   const KIND = { first: 'Первое письмо', followup: 'Напоминание', manual: 'Письмо', reply: 'Ответ', auto: 'Автоответ', bounce: 'Не доставлено' };
 
   async function api(path, opts = {}) {
@@ -232,7 +237,7 @@
   }
 
   // ================= Статус отправки (общий блок) =================
-  function senderCard(s, inb) {
+  function senderCard(s, inb, nextSch) {
     const err = s.error;
     const cls = err ? 'err' : s.enabled && !s.waiting ? 'on' : '';
     const title = !s.configured ? 'Почта не подключена' : err ? 'Отправка остановлена' : s.enabled ? (s.waiting ? 'Рассылка включена' : 'Идёт отправка') : 'Рассылка на паузе';
@@ -242,7 +247,8 @@
       : `${s.enabled ? esc(s.waiting || '') : 'Письма не уходят, пока не нажмёте «Запустить»'}${s.queued ? ` · в очереди ${nf(s.queued)}` : ''}`;
     const btn = !s.configured ? `<a class="btn" href="#/settings">${ic('plug', 18)} Подключить почту</a>`
       : s.enabled ? `<button class="btn soft" data-sender="0">${ic('pause', 18)} Пауза</button>` : `<button class="btn hl" data-sender="1">${ic('play', 18)} Запустить</button>`;
-    const limit = `<div class="small muted" style="margin-top:6px">За сутки: <b>${nf(s.sent_24h)}</b> из ${nf(s.daily_limit)}${inb ? ` · почта проверена ${inb.last_check ? ago(inb.last_check) : 'ещё не проверялась'}${inb.error ? ` · <span style="color:var(--danger)">ошибка чтения: ${esc(inb.error)}</span>` : ''}` : ''}</div>`;
+    const schLine = nextSch ? `<div class="small" style="margin-top:6px">${ic('clock', 14)} Запланировано: <a class="link" href="#/send">${esc(nextSch.name)}</a> — ${dWhen(nextSch.next_run_at)}</div>` : '';
+    const limit = `${schLine}<div class="small muted" style="margin-top:6px">За сутки: <b>${nf(s.sent_24h)}</b> из ${nf(s.daily_limit)}${inb ? ` · почта проверена ${inb.last_check ? ago(inb.last_check) : 'ещё не проверялась'}${inb.error ? ` · <span style="color:var(--danger)">ошибка чтения: ${esc(inb.error)}</span>` : ''}` : ''}</div>`;
     return `<div class="card sender ${cls}"><div class="big">${ic(err ? 'alert' : s.enabled ? 'send' : 'pause', 26)}</div>
       <div style="min-width:0"><b class="t">${title}</b><div class="small muted">${sub}</div>${limit}</div>
       <div class="row">${s.configured && s.due ? `<button class="btn outline sm" data-next-now title="Отправить следующее письмо сейчас, без паузы">${ic('zap', 16)} Отправить одно сейчас</button>` : ''}${btn}</div></div>`;
@@ -264,7 +270,7 @@
     const langRows = h.langs.map((l) => `<tr><td>${langTag(l.lang)} ${esc(lname(l.lang))}</td><td class="r num">${nf(l.contacts)}</td><td class="r num">${nf(l.sent)}</td><td class="r num"><b>${nf(l.replied)}</b></td><td class="r num muted">${pct(l.replied, l.sent)}</td></tr>`).join('');
     const ctrRows = h.countries.map((c) => `<tr class="click" data-href="#/companies?country=${c.country || '-'}"><td><span class="flagc">${flag(c.country)}</span> ${esc(cname(c.country))}</td><td class="r num">${nf(c.contacts)}</td><td class="r num">${nf(c.sent)}</td><td class="r num"><b>${nf(c.replied)}</b></td></tr>`).join('');
     return `${head('Обзор', 'Как идёт рассылка и кто ответил', `<a class="btn soft" href="#/import">${ic('upload')} Загрузить файл</a><a class="btn" href="#/send/new">${ic('send')} Новая рассылка</a>`)}
-      ${senderCard(h.sender, h.inbox)}
+      ${senderCard(h.sender, h.inbox, h.next_schedule)}
       ${empty ? `<div class="card" style="margin-top:16px"><h2>С чего начать</h2><div class="timeline" style="margin-top:12px">
         ${[['plug', 'Подключите почту', 'Gmail или другой ящик — в «Настройках». Для Gmail нужен «пароль приложения».', '#/settings'],
           ['doc', 'Проверьте шаблоны писем', 'Английский, немецкий, французский и испанский уже есть — вставьте свои тексты.', '#/templates'],
@@ -590,7 +596,7 @@
 
   // ================= Рассылка =================
   async function pageSend() {
-    const [s, camps, queue] = await Promise.all([api('/api/sender'), api('/api/campaigns'), api('/api/queue')]);
+    const [s, camps, queue, schs] = await Promise.all([api('/api/sender'), api('/api/campaigns'), api('/api/queue'), api('/api/schedules')]);
     const cards = camps.map((c) => {
       const w = (n) => (c.total ? `${(n / c.total) * 100}%` : '0');
       return `<div class="card"><div class="card-h"><div><h3>${esc(c.name)}</h3><span class="small muted">${dt(c.created_at)}${c.followup_days ? ` · напоминание через ${c.followup_days} дн.` : ' · без напоминаний'}</span></div>${pill(c.status)}</div>
@@ -604,21 +610,54 @@
       <td>${m.status === 'sent' ? pill('sent', 'Отправлено') : m.status === 'failed' ? pill('failed', 'Ошибка') : pill('queued', m.scheduled_at && m.scheduled_at > Date.now() ? `с ${dOnly(m.scheduled_at)}` : 'Ждёт')}</td>
       <td class="small muted">${m.status === 'sent' ? ago(m.sent_at) : esc(m.error || '')}</td></tr>`).join('');
     return `${head('Рассылка', 'Письма уходят по одному с паузой — как будто их отправляет человек. Так почта не попадает в спам.', `<a class="btn hl" href="#/send/new">${ic('plus')} Новая рассылка</a>`)}
-      ${senderCard(s.sender, s.inbox)}
+      ${senderCard(s.sender, s.inbox, s.next_schedule)}
+      ${schs.length ? `<div class="card flush" style="margin-top:16px"><div class="card-h" style="padding:16px 18px 6px"><h3>${ic('clock')} Запланированные</h3><a class="link small" href="#/send/new">${ic('plus', 14)} Запланировать</a></div>
+        <div class="list">${schs.map(schLi).join('')}</div></div>` : ''}
       <div class="grid-2" style="margin-top:16px;align-items:start">
         <div class="stack">${cards || `<div class="card empty">${ic('send', 32)}<p>Рассылок ещё не было.</p><a class="btn" href="#/send/new">Запустить первую</a></div>`}</div>
         <div class="card flush"><div class="card-h" style="padding:16px 18px 6px"><h3>Очередь и последние письма</h3><a class="link small" href="#/settings">Лимиты и время</a></div>
           <div class="table-wrap"><table class="t"><tbody>${qrows || '<tr><td class="muted">Очередь пуста</td></tr>'}</tbody></table></div></div>
       </div>`;
   }
+  function schLi(x) {
+    const f = x.filter || {};
+    const who = f.ids ? `${String(f.ids).split(',').length} выбранных компаний` : [
+      { new: 'кому ещё не писали', sent: 'кто не ответил', replied: 'кто ответил' }[String(f.status || 'new').split(',')[0]] || '',
+      f.lang ? `языки: ${String(f.lang).toUpperCase()}` : '', f.country ? `страны: ${String(f.country).split(',').map((c) => flag(c === '-' ? '' : c)).join(' ')}` : '',
+      f.gap_days ? `не чаще раза в ${f.gap_days} дн.` : ''].filter(Boolean).join(' · ');
+    return `<div class="li" style="grid-template-columns:1fr auto"><div style="min-width:0;display:grid;gap:4px">
+        <div class="t1">${esc(x.name)} ${x.active ? pill('running', x.repeat === 'once' ? 'Запланирована' : 'По расписанию') : pill('paused', x.next_run_at ? 'На паузе' : 'Выполнена')}</div>
+        <div class="t2"><span>${ic('clock', 13)} ${esc(repeatText(x))}${x.ends_at ? `, до ${dOnly(x.ends_at)}` : ''}</span></div>
+        <div class="t2">${x.active && x.next_run_at ? `<span>Следующий раз: <b style="color:var(--text)">${dWhen(x.next_run_at)}</b></span>` : ''}${x.active && x.audience_now != null ? `<span>· если бы сейчас — ${nf(x.audience_now)} писем</span>` : ''}</div>
+        <div class="t2"><span>${esc(who)}</span>${x.followup_days ? `<span>· напоминание через ${x.followup_days} дн.</span>` : ''}</div>
+        ${x.last_run_at ? `<div class="t2"><span>Последний запуск ${dt(x.last_run_at)}: ${esc(x.last_result)}</span></div>` : ''}</div>
+      <div class="row" style="justify-content:flex-end">
+        <button class="btn sm soft" data-srun="${x.id}" title="Поставить письма в очередь прямо сейчас">${ic('zap', 15)} Сейчас</button>
+        <button class="btn sm soft" data-smove="${x.id}">${ic('clock', 15)} Перенести</button>
+        ${x.active ? `<button class="btn sm soft" data-sact="pause" data-sid="${x.id}">${ic('pause', 15)}</button>` : x.next_run_at || x.repeat !== 'once' ? `<button class="btn sm" data-sact="resume" data-sid="${x.id}">${ic('play', 15)}</button>` : ''}
+        <button class="btn sm danger" data-sact="delete" data-sid="${x.id}" aria-label="Удалить">${ic('trash', 15)}</button></div></div>`;
+  }
   pageSend.after = () => {
     bindSender(); bindRows();
+    $$('[data-srun]').forEach((b) => b.onclick = async () => {
+      if (!(await confirmBox('Запустить сейчас?', 'Письма встанут в очередь прямо сейчас. Расписание не сдвинется.', 'Запустить'))) return;
+      busy(b, async () => { const x = await post(`/api/schedules/${b.dataset.srun}/run`); toast(x.result); rerender(); });
+    });
+    $$('[data-smove]').forEach((b) => b.onclick = async () => {
+      const x = await ask({ title: 'Перенести', fields: [{ name: 'at', label: 'Новая дата и время', type: 'datetime-local', value: localInput(Date.now() + 86400e3), required: true }], ok: 'Сохранить' });
+      if (!x) return;
+      busy(b, async () => { await post(`/api/schedules/${b.dataset.smove}`, { action: 'reschedule', run_at: new Date(x.at).getTime(), tz: myTz() }); toast('Перенесено'); rerender(); });
+    });
+    $$('[data-sact]').forEach((b) => b.onclick = async () => {
+      if (b.dataset.sact === 'delete' && !(await confirmBox('Удалить расписание?', 'Уже отправленные письма останутся, новых запусков не будет.', 'Удалить', true))) return;
+      busy(b, async () => { await post(`/api/schedules/${b.dataset.sid}`, { action: b.dataset.sact }); rerender(); });
+    });
     $$('[data-cs]').forEach((b) => b.onclick = async () => {
       if (b.dataset.v === 'cancelled' && !(await confirmBox('Отменить остаток?', 'Неотправленные письма этой рассылки будут удалены из очереди. Компании вернутся в статус «Новая».', 'Отменить', true))) return;
       busy(b, async () => { await post(`/api/campaigns/${b.dataset.cs}/status`, { status: b.dataset.v }); rerender(); });
     });
     $$('[data-retry]').forEach((b) => b.onclick = () => busy(b, async () => { const x = await post(`/api/campaigns/${b.dataset.retry}/retry`); toast(`Снова в очереди: ${x.queued}`); rerender(); }));
-    S.timers.push(setInterval(() => { if (document.visibilityState === 'visible') api('/api/sender').then((s) => { const el = $('.sender'); if (el) { const tmp = document.createElement('div'); tmp.innerHTML = senderCard(s.sender, s.inbox); el.replaceWith(tmp.firstElementChild); bindSenderButtons(); } }).catch(() => {}); }, 20000));
+    S.timers.push(setInterval(() => { if (document.visibilityState === 'visible') api('/api/sender').then((s) => { const el = $('.sender'); if (el) { const tmp = document.createElement('div'); tmp.innerHTML = senderCard(s.sender, s.inbox, s.next_schedule); el.replaceWith(tmp.firstElementChild); bindSenderButtons(); } }).catch(() => {}); }, 20000));
   };
   function bindSenderButtons() {
     $$('[data-sender]').forEach((b) => b.onclick = () => busy(b, async () => { await post('/api/sender', { enabled: b.dataset.sender === '1' }); rerender(); }));
@@ -652,6 +691,22 @@
               <small class="hint">Короткое письмо в ту же переписку. Не уйдёт, если компания уже ответила.</small></label>
           </div>
         </div>
+        <div class="card stack"><h3 style="margin:0">${ic('clock')} Когда отправить</h3>
+          <div class="choice">
+            <label><input type="radio" name="when" value="now" checked><span><b>Сейчас</b><small>Письма сразу встанут в очередь</small></span></label>
+            <label><input type="radio" name="when" value="once"><span><b>В выбранную дату</b><small>Один раз, в указанный день и час</small></span></label>
+            <label><input type="radio" name="when" value="repeat"><span><b>Повторять</b><small>Каждую неделю или каждый месяц</small></span></label>
+          </div>
+          <div id="whenx" class="stack hidden">
+            <div class="form-grid">
+              <label class="field"><span id="atl">Дата и время</span><input class="input" type="datetime-local" name="run_at" value="${localInput((() => { const d = new Date(Date.now() + 86400e3); d.setHours(10, 0, 0, 0); return d.getTime(); })())}"></label>
+              <label class="field rep hidden"><span>Как часто</span><select class="input" name="repeat"><option value="monthly">Каждый месяц (в тот же день)</option><option value="biweekly">Каждые 2 недели</option><option value="weekly">Каждую неделю</option></select></label>
+              <label class="field rep hidden"><span>Повторять до <small class="faint">— необязательно</small></span><input class="input" type="date" name="ends_at"></label>
+            </div>
+            <label class="sw rep hidden"><input type="checkbox" name="gap" checked><i></i><span>Не писать компании чаще, чем раз в период <small class="faint">(даже если она подходит под фильтр)</small></span></label>
+            <div class="note info small">${ic('info')}<span id="whenhint"></span></div>
+          </div>
+        </div>
         <div class="card" id="pv"><div class="sk" style="height:120px"></div></div>
         <div class="sticky-act row between"><a class="btn soft" href="#/send">Отмена</a><button class="btn lg hl" id="go" disabled>${ic('send')} Запустить рассылку</button></div>
       </form>`;
@@ -661,7 +716,24 @@
     const body = () => {
       const vals = (n) => $$(`input[name=${n}]:checked`, f).map((x) => x.value).join(',');
       const filter = pageNewCampaign.ids ? { ids: pageNewCampaign.ids, status: 'new,sent,replied,queued' } : { status: vals('status') || 'new', lang: vals('lang'), country: vals('country'), import_id: f.import_id ? f.import_id.value : '' };
-      return { filter, fallback: f.fallback.value, followup_days: Number(f.followup_days.value), name: f.name.value.trim() };
+      const when = f.when.value;
+      const per = { weekly: 7, biweekly: 14, monthly: 30 }[f.repeat.value];
+      if (when === 'repeat') filter.gap_days = f.gap.checked ? per : 0;
+      return { filter, fallback: f.fallback.value, followup_days: Number(f.followup_days.value), name: f.name.value.trim(), when,
+        run_at: f.run_at.value ? new Date(f.run_at.value).getTime() : null, repeat: when === 'repeat' ? f.repeat.value : 'once',
+        ends_at: when === 'repeat' && f.ends_at.value ? new Date(`${f.ends_at.value}T23:59`).getTime() : null, tz: myTz() };
+    };
+    const whenUI = () => {
+      const w = f.when.value;
+      $('#whenx').classList.toggle('hidden', w === 'now');
+      $$('.rep', f).forEach((el) => el.classList.toggle('hidden', w !== 'repeat'));
+      $('#atl').textContent = w === 'repeat' ? 'Первый раз' : 'Дата и время';
+      const at = f.run_at.value ? new Date(f.run_at.value) : null;
+      const day = at ? at.getDate() : '';
+      $('#whenhint').innerHTML = w === 'once' ? 'Список получателей соберётся в момент запуска — компании, которые вы загрузите до этого дня, тоже получат письмо.'
+        : `${f.repeat.value === 'monthly' ? `Каждый месяц ${day}-го числа` : f.repeat.value === 'weekly' ? 'Каждую неделю' : 'Раз в две недели'} письма получат компании, подходящие под выбор <b>в этот момент</b>. Например, «Ещё не писали» — значит, каждый раз письмо уйдёт новым компаниям из загруженных за это время файлов.${day > 28 && f.repeat.value === 'monthly' ? ' В коротких месяцах — в последний день.' : ''}`;
+      if (w !== 'now') $('#whenhint').innerHTML += ' Сами письма уходят только в рабочее время из «Настроек → Отправка» — если запуск позже, они начнут уходить следующим рабочим утром.';
+      $('#go').dataset.mode = w;
     };
     let seq = 0;
     const refresh = async () => {
@@ -670,25 +742,37 @@
         const p = await post('/api/campaigns/preview', body());
         if (my !== seq) return;
         $('#go').disabled = !p.will_send;
-        $('#go').innerHTML = `${ic('send')} Запустить: ${nf(p.will_send)} писем`;
+        const mode = f.when.value;
+        $('#go').disabled = mode === 'now' ? !p.will_send : false;
+        $('#go').innerHTML = mode === 'now' ? `${ic('send')} Запустить: ${nf(p.will_send)} писем` : `${ic('clock')} ${mode === 'repeat' ? 'Включить расписание' : 'Запланировать'}`;
         const rows = p.langs.map((l) => `<tr><td>${langTag(l.lang, !l.template)} ${esc(l.name)}</td><td class="r num"><b>${nf(l.count)}</b></td>
           <td>${l.template ? `<span style="color:var(--ok)">${ic('checkCircle', 15)} своё письмо</span>` : l.send_as ? `<span style="color:var(--warn)">${ic('alert', 15)} нет письма — уйдёт на ${esc(lname(l.send_as).toLowerCase())}</span> <a class="link small" href="#/templates/${l.lang}">создать</a>` : `<span style="color:var(--danger)">${ic('xCircle', 15)} пропустим</span> <a class="link small" href="#/templates/${l.lang}">создать письмо</a>`}</td>
           <td class="small muted">${l.send_as && body().followup_days ? (l.followup ? 'напоминание есть' : 'нет напоминания на этом языке') : ''}</td></tr>`).join('');
-        $('#pv').innerHTML = p.total ? `<div class="card-h"><h3>Получатели: ${nf(p.total)}</h3><span class="small muted">≈ ${nf(p.days)} дн. при лимите ${nf(p.daily_limit)} писем в сутки</span></div>
+        $('#pv').innerHTML = p.total ? `<div class="card-h"><h3>${f.when.value === 'now' ? 'Получатели' : 'Если бы запуск был сейчас'}: ${nf(p.total)}</h3><span class="small muted">≈ ${nf(p.days)} дн. при лимите ${nf(p.daily_limit)} писем в сутки</span></div>
           <div class="table-wrap"><table class="t"><thead><tr><th>Язык компании</th><th class="r">Компаний</th><th>Какое письмо уйдёт</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
           ${p.skipped ? `<div class="note warn" style="margin-top:12px">${ic('alert')}<span>${nf(p.skipped)} компаниям письмо не уйдёт — нет шаблона на их языке.</span></div>` : ''}
           <p class="small faint" style="margin:12px 0 0">Компании из стоп-листа, с несуществующими адресами и уже стоящие в очереди исключены автоматически.</p>`
-          : `<div class="empty">${ic('users', 30)}<p>По этому выбору некому писать.</p><p class="small">Возможно, всем уже отправлено — выберите «Писали, но не ответили» или загрузите новый файл.</p></div>`;
+          : `<div class="empty">${ic('users', 30)}<p>По этому выбору ${f.when.value === 'now' ? 'некому писать' : 'сейчас некому писать — к моменту запуска могут появиться новые компании'}.</p><p class="small">Возможно, всем уже отправлено — выберите «Писали, но не ответили» или загрузите новый файл.</p></div>`;
       } catch (e) { fail(e); }
     };
-    f.onchange = refresh;
-    refresh();
+    f.onchange = () => { whenUI(); refresh(); };
+    whenUI(); refresh();
     f.onsubmit = async (e) => {
       e.preventDefault();
       const s = await api('/api/sender');
       if (!s.sender.configured) { toast('Сначала подключите почту в «Настройках»', true); return; }
+      const b = body();
+      if (b.when !== 'now') {
+        if (!b.run_at || b.run_at < Date.now() - 60e3) { toast('Выберите дату и время в будущем', true); f.run_at.focus(); return; }
+        busy($('#go'), async () => {
+          const x = await post('/api/schedules', b);
+          sessionStorage.removeItem('gm-ids');
+          toast(`Запланировано на ${dWhen(x.next_run_at)}`); go('#/send');
+        });
+        return;
+      }
       busy($('#go'), async () => {
-        const x = await post('/api/campaigns', body());
+        const x = await post('/api/campaigns', b);
         sessionStorage.removeItem('gm-ids');
         toast(`Рассылка запущена: ${x.queued} писем в очереди`); go('#/send');
       });

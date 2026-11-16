@@ -99,6 +99,26 @@ CREATE TABLE IF NOT EXISTS campaigns (
   created_at INTEGER NOT NULL
 );
 
+-- Запланированные рассылки: один раз в выбранную дату или по расписанию (неделя / 2 недели / месяц)
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  repeat TEXT NOT NULL DEFAULT 'once' CHECK (repeat IN ('once','weekly','biweekly','monthly')),
+  next_run_at INTEGER,                    -- когда сработает в следующий раз (NULL — больше не сработает)
+  day INTEGER, hour INTEGER NOT NULL, minute INTEGER NOT NULL, tz TEXT NOT NULL,  -- «время на часах» для расчёта следующего раза
+  ends_at INTEGER,                        -- повторять до этой даты (необязательно)
+  active INTEGER NOT NULL DEFAULT 1,
+  filter_json TEXT NOT NULL DEFAULT '{}',
+  fallback TEXT NOT NULL DEFAULT 'en',
+  followup_days INTEGER NOT NULL DEFAULT 0,
+  runs INTEGER NOT NULL DEFAULT 0,
+  last_run_at INTEGER,
+  last_result TEXT NOT NULL DEFAULT '',
+  last_campaign_id INTEGER,
+  created_by INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+
 -- Все письма: исходящие (рассылка, напоминания, ответы из системы) и входящие (ответы компаний)
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY,

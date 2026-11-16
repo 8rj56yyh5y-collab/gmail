@@ -14,6 +14,7 @@ const I = require('./importer');
 const mailer = require('./mailer');
 const inbox = require('./inbox');
 const ai = require('./ai');
+const sched = require('./schedules');
 
 const { HttpError, str } = K;
 const PORT = Number(process.env.PORT) || 3000;
@@ -147,7 +148,7 @@ function home() {
       SUM(EXISTS (SELECT 1 FROM messages m WHERE m.contact_id = c.id AND m.direction = 'in' AND m.kind = 'reply')) replied
     FROM contacts c GROUP BY c.country ORDER BY contacts DESC LIMIT 12`).all();
   const latest = inbox.list({ tab: 'replies' }).rows.slice(0, 6);
-  return { total, by_status: by, sent, replied, unread: inbox.unreadCount(), series, langs, countries, latest, sender: mailer.status(), inbox: inbox.status(), now };
+  return { total, by_status: by, sent, replied, unread: inbox.unreadCount(), series, langs, countries, latest, sender: mailer.status(), inbox: inbox.status(), next_schedule: sched.nextUp(), now };
 }
 
 function exportCsv(q) {
@@ -308,7 +309,16 @@ async function api(req, res, url) {
       FROM messages m JOIN contacts c ON c.id = m.contact_id WHERE m.direction = 'out' AND m.campaign_id IS NOT NULL AND (m.status IN ('queued','failed') OR m.sent_at > ?)
       ORDER BY CASE m.status WHEN 'failed' THEN 0 WHEN 'sent' THEN 2 ELSE 1 END, CASE WHEN m.status = 'sent' THEN -m.sent_at ELSE COALESCE(m.scheduled_at, 0) END, m.id LIMIT 200`).all(Date.now() - 2 * 86400e3);
   }
-  if (p === '/api/sender' && m === 'GET') return { sender: mailer.status(), inbox: inbox.status() };
+  if (p === '/api/sender' && m === 'GET') return { sender: mailer.status(), inbox: inbox.status(), next_schedule: sched.nextUp() };
+
+  // запланированные рассылки
+  if (p === '/api/schedules' && m === 'GET') return sched.list();
+  if (p === '/api/schedules' && m === 'POST') {
+    if (!mailer.configured()) throw new HttpError(400, 'Сначала подключите почту в «Настройках»');
+    return sched.create(u, body);
+  }
+  if ((r = /^\/api\/schedules\/(\d+)$/.exec(p)) && m === 'POST') return sched.update(u, r[1], body);
+  if ((r = /^\/api\/schedules\/(\d+)\/run$/.exec(p)) && m === 'POST') return sched.runNow(u, r[1]);
   if (p === '/api/sender' && m === 'POST') {
     if (body.enabled && !mailer.configured()) throw new HttpError(400, 'Сначала подключите почту в «Настройках»');
     setSetting('sending_enabled', body.enabled ? 1 : 0);
@@ -417,6 +427,7 @@ if (require.main === module) {
     console.log(`${APP_NAME}: http://localhost:${PORT}${mailer.TEST_MODE ? '  (тестовый режим — письма никуда не уходят)' : ''}`);
     mailer.start();
     inbox.start();
+    sched.start();
   });
 }
 

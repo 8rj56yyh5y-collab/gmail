@@ -177,7 +177,10 @@ function audience(filter) {
   const f = { ...filter };
   if (!f.status) f.status = 'new';
   const { sql, params } = K.where(f);
-  const extra = "c.status NOT IN ('unsubscribed','bounced','blocked') AND NOT EXISTS (SELECT 1 FROM messages q WHERE q.contact_id = c.id AND q.status = 'queued')";
+  let extra = "c.status NOT IN ('unsubscribed','bounced','blocked') AND NOT EXISTS (SELECT 1 FROM messages q WHERE q.contact_id = c.id AND q.status = 'queued')";
+  // для повторяющихся рассылок: не писать тем, кому уже писали за последние N дней
+  const gap = Math.max(0, Math.min(365, Number(f.gap_days) || 0));
+  if (gap) { extra += ' AND (c.last_sent_at IS NULL OR c.last_sent_at < ?)'; params.push(Date.now() - gap * 86400e3); }
   return db.prepare(`SELECT c.id, c.lang, c.email FROM contacts c ${sql ? `${sql} AND ${extra}` : `WHERE ${extra}`}`).all(...params);
 }
 

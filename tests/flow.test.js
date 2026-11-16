@@ -225,3 +225,50 @@ test('настройки: пароль почты не отдаётся и хр�
   assert.doesNotMatch(raw, /abcd/);
   assert.equal(require('../server/db').getSettings().mail_pass, 'abcdefghijklmnop');
 });
+
+test('расписание: разовая рассылка срабатывает в нужный момент и собирает получателей тогда же', async () => {
+  const sched = require('../server/schedules');
+  const r = await call('POST', '/api/schedules', { name: 'Разовая', run_at: Date.now() + 3600e3, tz: 'Europe/Kyiv', filter: { status: 'new' } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(sched.tick(), []); // ещё рано
+  // компания добавлена уже после планирования — тоже должна попасть
+  await call('POST', '/api/contacts', { email: 'office@novak.cz', company: 'Novák s.r.o.', country: 'CZ' });
+  const res = sched.tick(Date.now() + 2 * 3600e3);
+  assert.equal(res.length, 1);
+  assert.match(res[0].result, /Поставлено в очередь: 1/);
+  assert.equal(res[0].next_run_at, null);
+  const s = db.prepare('SELECT * FROM schedules WHERE id = ?').get(r.data.id);
+  assert.equal(s.active, 0);
+  const camp = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(s.last_campaign_id);
+  assert.match(camp.name, /^Разовая · /);
+  assert.equal(db.prepare("SELECT to_addr FROM messages WHERE campaign_id = ?").get(camp.id).to_addr, 'office@novak.cz');
+  assert.equal(require('../server/db').getSettings().sending_enabled, 1); // отправка включилась сама
+  // прошлая дата не принимается
+  assert.equal((await call('POST', '/api/schedules', { run_at: Date.now() - 86400e3, filter: {} })).status, 400);
+});
+
+test('расписание: каждый месяц — тот же день, короткие месяцы, не чаще раза в период', async () => {
+  const sched = require('../server/schedules');
+  const tz = 'Europe/Kyiv';
+  const show = (t) => new Date(t).toLocaleString('ru-RU', { timeZone: tz });
+  const first = sched.zoned(2030, 1, 31, 10, 0, tz);
+  let t = first; const out = [];
+  for (let i = 0; i < 3; i++) { t = sched.nextRun({ repeat: 'monthly', day: 31, hour: 10, minute: 0, tz, next_run_at: t }, t); out.push(show(t)); }
+  assert.deepEqual(out, ['28.02.2030, 10:00:00', '31.03.2030, 10:00:00', '30.04.2030, 10:00:00']);
+  // неделя: тот же день недели и время, переход на летнее время не сдвигает час
+  const w0 = sched.zoned(2030, 3, 25, 18, 30, tz);
+  const w1 = sched.nextRun({ repeat: 'weekly', hour: 18, minute: 30, tz, next_run_at: w0 }, w0);
+  assert.equal(show(w1), '01.04.2030, 18:30:00');
+
+  // повтор по «Писали, но не ответили»: свежим получателям повторно не пишем
+  const r = await call('POST', '/api/schedules', { name: 'Ежемесячно', repeat: 'monthly', run_at: Date.now() + 60e3, tz, filter: { status: 'sent' } });
+  assert.equal(r.data.filter_json.includes('"gap_days":30'), true);
+  const res = sched.tick(Date.now() + 120e3);
+  assert.match(res[0].result, /Некому/); // всем писали только что
+  const s = db.prepare('SELECT * FROM schedules WHERE id = ?').get(r.data.id);
+  assert.equal(s.active, 1);
+  assert.ok(s.next_run_at > Date.now() + 27 * 86400e3);
+  const p = await call('POST', `/api/schedules/${s.id}`, { action: 'pause' });
+  assert.equal(p.data.active, 0);
+  assert.equal((await call('GET', '/api/schedules')).data.length, 2);
+});
